@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>教师端 - 实验报告管理系统</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.min.js"></script>
+</head>
+<body>
+    <div class="header">
+        <h2>实验报告管理系统</h2>
+        <div>
+            <span id="userInfo"></span>
+            <button onclick="logout()">退出</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="btn-group">
+            <button onclick="showCreateCourse()">创建课程</button>
+            <button onclick="showImport()">导入Excel</button>
+        </div>
+
+        <h3>我的课程</h3>
+        <div id="courseList"></div>
+    </div>
+
+    <div id="createCourseModal" class="modal">
+        <div class="modal-content">
+            <h3>创建课程</h3>
+            <form id="createCourseForm">
+                <input type="text" id="courseName" placeholder="课程名称" required>
+                <div class="btn-group">
+                    <button type="button" onclick="closeModal()">取消</button>
+                    <button type="submit">创建</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="importModal" class="modal">
+        <div class="modal-content">
+            <h3>导入学生和实验项目</h3>
+            <select id="courseSelect" required></select>
+            <input type="file" id="excelFile" accept=".xlsx,.xls" required>
+            <p>Excel格式：第一列ID，第二列SNO，第三列Sname，第四列及以后为实验项目名</p>
+            <div class="btn-group">
+                <button type="button" onclick="closeModal()">取消</button>
+                <button onclick="importExcel()">导入</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const SUPABASE_URL = 'https://bvvbbyxedvhpsilggyyx.supabase.co';
+        const SUPABASE_KEY = 'sb_publishable_yKsNqqYsG2R9cqZUMUjDAg_YcQ7nCff';
+
+
+        const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        const user = JSON.parse(localStorage.getItem('user'));
+
+        if (!user || user.role !== 'teacher') window.location.href = 'index.html';
+        document.getElementById('userInfo').textContent = user.sname;
+
+        async function loadCourses() {
+            const { data: courses, error: courseError } = await sb
+                .from('courses')
+                .select('id, course_name')
+                .eq('teacher_id', user.id);
+
+            if (courseError) {
+                alert('加载课程失败');
+                return;
+            }
+
+            const courseSelect = document.getElementById('courseSelect');
+            courseSelect.innerHTML = '<option value="">选择课程</option>';
+            courses.forEach(course => {
+                courseSelect.innerHTML += `<option value="${course.id}">${course.course_name}</option>`;
+            });
+
+            const courseList = document.getElementById('courseList');
+            courseList.innerHTML = '';
+
+            for (const course of courses) {
+                const { data: experiments, error: expError } = await supabase
+                    .from('experiments')
+                    .select(`
+                        id, exp_name, is_open,
+                        reports:reports(count)
+                    `)
+                    .eq('course_id', course.id);
+
+                if (expError) continue;
+
+                const courseDiv = document.createElement('div');
+                courseDiv.className = 'course-card';
+                courseDiv.innerHTML = `<h4>${course.course_name}</h4>`;
+
+                const expList = document.createElement('ul');
+                experiments.forEach(exp => {
+                    const submittedCount = exp.reports[0]?.count || 0;
+                    const li = document.createElement('li');
+                    li.innerHTML = `
+                        <span>${exp.exp_name}</span>
+                        <span>已提交：${submittedCount}人</span>
+                        <button onclick="toggleExp('${exp.id}', ${exp.is_open})">
+                            ${exp.is_open ? '关闭' : '开放'}
+                        </button>
+                    `;
+                    expList.appendChild(li);
+                });
+
+                courseDiv.appendChild(expList);
+                courseList.appendChild(courseDiv);
+            }
+        }
+
+        async function toggleExp(expId, currentState) {
+            const { error } = await sb
+                .from('experiments')
+                .update({ is_open: !currentState })
+                .eq('id', expId);
+
+            if (error) {
+                alert('操作失败');
+                return;
+            }
+            loadCourses();
+        }
+
+        function showCreateCourse() {
+            document.getElementById('createCourseModal').style.display = 'block';
+        }
+
+        document.getElementById('createCourseForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const courseName = document.getElementById('courseName').value;
+
+            const { error } = await sb
+                .from('courses')
+                .insert({
+                    course_name: courseName,
+                    teacher_id: user.id
+                });
+
+            if (error) {
+                alert('创建失败：' + error.message);
+                return;
+            }
+
+            alert('课程创建成功');
+            closeModal();
+            loadCourses();
+        });
+
+        function showImport() {
+            document.getElementById('importModal').style.display = 'block';
+        }
+
+        async function importExcel() {
+            const courseId = document.getElementById('courseSelect').value;
+            const file = document.getElementById('excelFile').files[0];
+
+            if (!courseId || !file) {
+                alert('请选择课程和Excel文件');
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+                const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                const json = XLSX.utils.sheet_to_json(sheet);
+
+                if (json.length === 0) {
+                    alert('Excel文件为空');
+                    return;
+                }
+
+                const students = json.map(row => ({
+                    username: row.SNO.toString(),
+                    password: '123456',
+                    role: 'student',
+                    sno: row.SNO.toString(),
+                    sname: row.Sname
+                }));
+
+                const expNames = Object.keys(json[0]).slice(3);
+                const experiments = expNames.map(name => ({
+                    course_id: courseId,
+                    exp_name: name
+                }));
+
+                await supabase.from('users').insert(students, { ignoreDuplicates: true });
+
+                const { data: userIds } = await sb
+                    .from('users')
+                    .select('id, sno')
+                    .in('sno', students.map(s => s.sno));
+
+                const enrollments = userIds.map(u => ({
+                    course_id: courseId,
+                    student_id: u.id
+                }));
+                await supabase.from('enrollments').insert(enrollments, { ignoreDuplicates: true });
+
+                // 批量插入实验项目
+                if (experiments.length > 0) {
+                    await supabase.from('experiments').insert(experiments);
+                }
+
+                alert('导入成功');
+                closeModal();
+                loadCourses();
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        function closeModal() {
+            document.querySelectorAll('.modal').forEach(modal => {
+                modal.style.display = 'none';
+            });
+        }
+
+        function logout() {
+            localStorage.removeItem('user');
+            window.location.href = 'index.html';
+        }
+
+        window.onload = loadCourses;
+    </script>
+</body>
+</html>

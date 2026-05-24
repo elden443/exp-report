@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>实验报告管理系统</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+    <div class="login-box">
+        <h1>实验报告管理系统</h1>
+        <form id="loginForm">
+            <input type="text" id="username" placeholder="用户名" required>
+            <input type="password" id="password" placeholder="密码" required>
+            <button type="submit">登录</button>
+        </form>
+    </div>
+
+    <script>
+        const SUPABASE_URL = 'https://bvvbbyxedvhpsilggyyx.supabase.co';
+        const SUPABASE_KEY = 'sb_publishable_yKsNqqYsG2R9cqZUMUjDAg_YcQ7nCff';
+
+        const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+
+            const { data, error } = await sb
+                .from('users')
+                .select('*')
+                .eq('username', username)
+                .eq('password', password)
+                .single();
+
+            if (error) {
+                alert('用户名或密码错误');
+                return;
+            }
+
+            localStorage.setItem('user', JSON.stringify(data));
+
+            if (data.role === 'student') window.location.href = 'student.html';
+            else if (data.role === 'teacher') window.location.href = 'teacher.html';
+        });
+    </script>
+</body>
+</html>

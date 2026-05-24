@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>学生端 - 实验报告管理系统</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+    <div class="header">
+        <h2>实验报告管理系统</h2>
+        <div>
+            <span id="userInfo"></span>
+            <button onclick="logout()">退出</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <h3>我的实验课程</h3>
+        <div id="courseList"></div>
+    </div>
+
+    <!-- 上传弹窗 -->
+    <div id="uploadModal" class="modal">
+        <div class="modal-content">
+            <h3>上传实验报告</h3>
+            <form id="uploadForm">
+                <input type="hidden" id="expId">
+                <input type="hidden" id="courseName">
+                <input type="hidden" id="expName">
+                <input type="file" id="reportFile" accept=".pdf" required>
+                <p>仅支持PDF文件，最大8MB</p>
+                <div class="btn-group">
+                    <button type="button" onclick="closeModal()">取消</button>
+                    <button type="submit">上传</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        const SUPABASE_URL = 'https://bvvbbyxedvhpsilggyyx.supabase.co';
+        const SUPABASE_KEY = 'sb_publishable_yKsNqqYsG2R9cqZUMUjDAg_YcQ7nCff';
+
+        const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        const user = JSON.parse(localStorage.getItem('user'));
+
+        // 检查登录状态
+        if (!user || user.role !== 'student') window.location.href = 'index.html';
+        document.getElementById('userInfo').textContent = `${user.sname} (${user.sno})`;
+
+        // 加载我的课程
+        async function loadCourses() {
+            const { data, error } = await sb
+                .from('enrollments')
+                .select(`
+                    course:courses(id, course_name),
+                    experiments:experiments(id, exp_name, is_open),
+                    reports:reports(id, file_path)
+                `)
+                .eq('student_id', user.id);
+
+            if (error) {
+                alert('加载课程失败');
+                return;
+            }
+
+            const courses = {};
+            data.forEach(item => {
+                if (!courses[item.course.id]) {
+                    courses[item.course.id] = {
+                        name: item.course.course_name,
+                        experiments: []
+                    };
+                }
+                item.experiments.forEach(exp => {
+                    const report = item.reports.find(r => r && r.exp_id === exp.id);
+                    courses[item.course.id].experiments.push({
+                        ...exp,
+                        reportId: report ? report.id : null,
+                        filePath: report ? report.file_path : null
+                    });
+                });
+            });
+
+            const courseList = document.getElementById('courseList');
+            courseList.innerHTML = '';
+
+            for (const [courseId, course] of Object.entries(courses)) {
+                const courseDiv = document.createElement('div');
+                courseDiv.className = 'course-card';
+                courseDiv.innerHTML = `<h4>${course.name}</h4>`;
+
+                const expList = document.createElement('ul');
+                course.experiments.forEach(exp => {
+                    const li = document.createElement('li');
+                    li.innerHTML = `
+                        <span>${exp.exp_name}</span>
+                        <span class="${exp.is_open ? 'open' : 'closed'}">
+                            ${exp.is_open ? '开放中' : '已关闭'}
+                        </span>
+                        ${exp.is_open ? `
+                            <button onclick="openUpload('${exp.id}', '${course.name}', '${exp.exp_name}')">
+                                ${exp.reportId ? '重新上传' : '上传'}
+                            </button>
+                        ` : ''}
+                        ${exp.reportId ? `
+                            <a href="${SUPABASE_URL}/storage/v1/object/public/reports/${exp.filePath}" target="_blank">查看</a>
+                        ` : ''}
+                    `;
+                    expList.appendChild(li);
+                });
+
+                courseDiv.appendChild(expList);
+                courseList.appendChild(courseDiv);
+            }
+        }
+
+        // 打开上传弹窗
+        function openUpload(expId, courseName, expName) {
+            document.getElementById('expId').value = expId;
+            document.getElementById('courseName').value = courseName;
+            document.getElementById('expName').value = expName;
+            document.getElementById('uploadModal').style.display = 'block';
+        }
+
+        // 关闭弹窗
+        function closeModal() {
+            document.getElementById('uploadModal').style.display = 'none';
+        }
+
+        // 上传报告
+        document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const file = document.getElementById('reportFile').files[0];
+            const expId = document.getElementById('expId').value;
+            const courseName = document.getElementById('courseName').value;
+            const expName = document.getElementById('expName').value;
+
+            // 检查文件大小
+            if (file.size > 8 * 1024 * 1024) {
+                alert('文件大小不能超过8MB');
+                return;
+            }
+
+            // 自动重命名文件
+            const fileName = `${user.sno}-${user.sname}-${expName}.pdf`;
+            const filePath = `${courseName}/${expName}/${fileName}`;
+
+            // 上传文件
+            const { error: uploadError } = await supabase.storage
+                .from('reports')
+                .upload(filePath, file, { upsert: true });
+
+            if (uploadError) {
+                alert('上传失败：' + uploadError.message);
+                return;
+            }
+
+            // 保存记录到数据库
+            const { error: dbError } = await supabase
+                .from('reports')
+                .upsert({
+                    exp_id: expId,
+                    student_id: user.id,
+                    file_name: fileName,
+                    file_path: filePath,
+                    file_size: file.size
+                }, { onConflict: 'exp_id, student_id' });
+
+            if (dbError) {
+                alert('保存失败：' + dbError.message);
+                return;
+            }
+
+            alert('上传成功');
+            closeModal();
+            loadCourses();
+        });
+
+        // 退出登录
+        function logout() {
+            localStorage.removeItem('user');
+            window.location.href = 'index.html';
+        }
+
+        // 页面加载时执行
+        window.onload = loadCourses;
+    </script>
+</body>
+</html>
