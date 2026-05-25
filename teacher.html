@@ -195,7 +195,7 @@
                     exp_name: name
                 }));
 
-                await supabase.from('users').insert(students, { ignoreDuplicates: true });
+                await sb.from('users').insert(students, { ignoreDuplicates: true });
 
                 const { data: userIds } = await sb
                     .from('users')
@@ -206,7 +206,7 @@
                     course_id: courseId,
                     student_id: u.id
                 }));
-                await supabase.from('enrollments').insert(enrollments, { ignoreDuplicates: true });
+                await sb.from('enrollments').insert(enrollments, { ignoreDuplicates: true });
 
                 // 批量插入实验项目
                 if (experiments.length > 0) {
