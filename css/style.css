@@ -10,6 +10,7 @@ body {
     line-height: 1.6;
 }
 
+/* 头部样式 */
 .header {
     background-color: #1890ff;
     color: white;
@@ -40,12 +41,14 @@ body {
     background-color: rgba(255,255,255,0.1);
 }
 
+/* 容器样式 */
 .container {
     max-width: 1000px;
     margin: 30px auto;
     padding: 0 20px;
 }
 
+/* 按钮组样式 */
 .btn-group {
     display: flex;
     gap: 10px;
@@ -75,6 +78,7 @@ body {
     background-color: #ff7875;
 }
 
+/* 课程卡片样式 */
 .course-card {
     background: white;
     padding: 20px;
@@ -98,6 +102,7 @@ body {
     font-size: 12px;
 }
 
+/* 列表样式 */
 ul {
     list-style: none;
 }
@@ -135,6 +140,7 @@ li button.danger {
     background-color: #ff4d4f;
 }
 
+/* 状态标签 */
 .open {
     color: #52c41a;
     font-weight: bold;
@@ -147,8 +153,9 @@ li button.danger {
     margin-right: 10px;
 }
 
+/* 弹窗样式（关键修复：默认隐藏+居中） */
 .modal {
-    display: none; 
+    display: none; /* 默认隐藏 */
     position: fixed;
     top: 0;
     left: 0;
@@ -173,6 +180,7 @@ li button.danger {
     color: #333;
 }
 
+/* 表单样式 */
 input, select {
     width: 100%;
     padding: 12px;
@@ -194,6 +202,7 @@ p {
     font-size: 14px;
 }
 
+/* 登录页样式 */
 .login-box {
     width: 400px;
     max-width: 90%;
