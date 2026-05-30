@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>学生端 - 实验报告管理系统</title>
-    <link rel="stylesheet" href="CSS/style.css">
+    <link rel="stylesheet" href="style.css">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
@@ -52,34 +52,28 @@
         if (!user || user.role !== 'student') window.location.href = 'index.html';
         document.getElementById('userInfo').textContent = `${user.sname} (${user.sno})`;
 
-        // ====================== 加载课程列表 ======================
+        // ====================== 修复后的加载课程函数（关键修复） ======================
         async function loadCourses() {
+            // 正确的关系链：enrollments → courses → experiments
             const { data, error } = await sb
                 .from('enrollments')
                 .select(`
-                    course:courses(id, course_name),
-                    experiments:experiments!inner(
-                        id, exp_name, is_open
+                    course:courses(
+                        id, 
+                        course_name,
+                        experiments(id, exp_name, is_open)
                     )
                 `)
                 .eq('student_id', user.id);
             
             if (error) {
                 alert('加载课程失败：' + error.message);
+                console.error(error);
                 return;
             }
 
             // 重新组织数据结构
-            const courses = {};
-            data.forEach(item => {
-                if (!courses[item.course.id]) {
-                    courses[item.course.id] = {
-                        name: item.course.course_name,
-                        experiments: []
-                    };
-                }
-                courses[item.course.id].experiments.push(item.experiments);
-            });
+            const courses = data.map(item => item.course);
 
             // 查询学生已提交的报告
             const { data: reports } = await sb
@@ -91,10 +85,10 @@
             const courseList = document.getElementById('courseList');
             courseList.innerHTML = '';
 
-            for (const [courseId, course] of Object.entries(courses)) {
+            courses.forEach(course => {
                 const courseDiv = document.createElement('div');
                 courseDiv.className = 'course-card';
-                courseDiv.innerHTML = `<h4>${course.name}</h4>`;
+                courseDiv.innerHTML = `<h4>${course.course_name}</h4>`;
 
                 const expList = document.createElement('ul');
                 course.experiments.forEach(exp => {
@@ -108,7 +102,7 @@
                             ${exp.is_open ? '开放中' : '已关闭'}
                         </span>
                         ${exp.is_open ? `
-                            <button onclick="openUpload('${exp.id}', '${course.name}', '${exp.exp_name}')">
+                            <button onclick="openUpload('${exp.id}', '${course.course_name}', '${exp.exp_name}')">
                                 ${report ? '重新上传' : '上传报告'}
                             </button>
                         ` : ''}
@@ -121,10 +115,10 @@
 
                 courseDiv.appendChild(expList);
                 courseList.appendChild(courseDiv);
-            }
+            });
 
             // 如果没有课程
-            if (Object.keys(courses).length === 0) {
+            if (courses.length === 0) {
                 courseList.innerHTML = '<p style="color: #999; text-align: center; padding: 40px;">暂无选修课程，请等待教师导入</p>';
             }
         }
