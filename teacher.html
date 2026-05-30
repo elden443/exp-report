@@ -27,11 +27,12 @@
         <div id="courseList"></div>
     </div>
 
+    <!-- 创建课程弹窗 -->
     <div id="createCourseModal" class="modal">
         <div class="modal-content">
             <h3>创建课程</h3>
             <form id="createCourseForm">
-                <input type="text" id="courseName" placeholder="课程名称" required>
+                <input type="text" id="courseName" placeholder="请输入课程名称" required>
                 <div class="btn-group">
                     <button type="button" onclick="closeModal()">取消</button>
                     <button type="submit">创建</button>
@@ -40,12 +41,19 @@
         </div>
     </div>
 
+    <!-- 导入Excel弹窗 -->
     <div id="importModal" class="modal">
         <div class="modal-content">
             <h3>导入学生和实验项目</h3>
-            <select id="courseSelect" required></select>
+            <select id="courseSelect" required>
+                <option value="">请选择课程</option>
+            </select>
             <input type="file" id="excelFile" accept=".xlsx,.xls" required>
-            <p>Excel格式：第一列ID，第二列SNO，第三列Sname，第四列及以后为实验项目名</p>
+            <p>Excel格式要求：<br>
+               第1列：序号（随便填数字）<br>
+               第2列：学号（SNO）<br>
+               第3列：姓名（Sname）<br>
+               第4列及以后：实验项目名称</p>
             <div class="btn-group">
                 <button type="button" onclick="closeModal()">取消</button>
                 <button onclick="importExcel()">导入</button>
@@ -53,12 +61,26 @@
         </div>
     </div>
 
+    <div id="deleteModal" class="modal">
+        <div class="modal-content">
+            <h3>确认删除</h3>
+            <p>确定要删除该课程吗？<br>
+               这将同时删除该课程下的所有实验项目、学生选课记录和实验报告，且无法恢复。</p>
+            <div class="btn-group">
+                <button type="button" onclick="closeModal()">取消</button>
+                <button type="button" class="danger" onclick="confirmDelete()">确认删除</button>
+            </div>
+        </div>
+    </div>
+
     <script>
 
         const SUPABASE_URL = 'https://bvvbbyxedvhpsilggyyx.supabase.co';
-        const SUPABASE_KEY = 'sb_publishable_yKsNqqYsG2R9cqZUMUjDAg_YcQ7nCff';
+        const SUPABASE_KEY = 'sb_publishable_yKsNqqYsG2R9cqZUMUjDAg_YcQ7nCff'';
+        
         const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
         const user = JSON.parse(localStorage.getItem('user'));
+        let currentDeleteCourseId = null;
 
         if (!user || user.role !== 'teacher') window.location.href = 'index.html';
         document.getElementById('userInfo').textContent = user.sname;
@@ -81,7 +103,7 @@
             }
 
             const courseSelect = document.getElementById('courseSelect');
-            courseSelect.innerHTML = '<option value="">选择课程</option>';
+            courseSelect.innerHTML = '<option value="">请选择课程</option>';
             courses.forEach(course => {
                 courseSelect.innerHTML += `<option value="${course.id}">${course.course_name}</option>`;
             });
@@ -92,7 +114,12 @@
             courses.forEach(course => {
                 const courseDiv = document.createElement('div');
                 courseDiv.className = 'course-card';
-                courseDiv.innerHTML = `<h4>${course.course_name}</h4>`;
+                courseDiv.innerHTML = `
+                    <h4>
+                        ${course.course_name}
+                        <button class="danger" onclick="showDeleteConfirm('${course.id}')">删除课程</button>
+                    </h4>
+                `;
 
                 if (course.experiments.length > 0) {
                     const expList = document.createElement('ul');
@@ -101,6 +128,9 @@
                         const li = document.createElement('li');
                         li.innerHTML = `
                             <span>${exp.exp_name}</span>
+                            <span class="${exp.is_open ? 'open' : 'closed'}">
+                                ${exp.is_open ? '开放中' : '已关闭'}
+                            </span>
                             <span>已提交：${submittedCount}人</span>
                             <button onclick="toggleExp('${exp.id}', ${exp.is_open})">
                                 ${exp.is_open ? '关闭上传' : '开放上传'}
@@ -110,11 +140,15 @@
                     });
                     courseDiv.appendChild(expList);
                 } else {
-                    courseDiv.innerHTML += '<p style="color: #666; padding: 12px;">暂无实验项目，请导入Excel</p>';
+                    courseDiv.innerHTML += '<p style="color: #999; padding: 12px; text-align: center;">暂无实验项目，请导入Excel</p>';
                 }
 
                 courseList.appendChild(courseDiv);
             });
+
+            if (courses.length === 0) {
+                courseList.innerHTML = '<p style="color: #999; text-align: center; padding: 40px;">暂无课程，请点击上方"创建课程"按钮</p>';
+            }
         }
 
         async function toggleExp(expId, currentState) {
@@ -136,8 +170,13 @@
 
         document.getElementById('createCourseForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-            const courseName = document.getElementById('courseName').value;
+            const courseName = document.getElementById('courseName').value.trim();
             
+            if (!courseName) {
+                alert('请输入课程名称');
+                return;
+            }
+
             const { error } = await sb
                 .from('courses')
                 .insert({
@@ -163,8 +202,13 @@
             const courseId = document.getElementById('courseSelect').value;
             const file = document.getElementById('excelFile').files[0];
             
-            if (!courseId || !file) {
-                alert('请选择课程和Excel文件');
+            if (!courseId) {
+                alert('请先选择课程');
+                return;
+            }
+
+            if (!file) {
+                alert('请选择Excel文件');
                 return;
             }
 
@@ -174,26 +218,42 @@
                     const data = new Uint8Array(e.target.result);
                     const workbook = XLSX.read(data, { type: 'array' });
                     const sheet = workbook.Sheets[workbook.SheetNames[0]];
-                    const json = XLSX.utils.sheet_to_json(sheet);
 
-                    if (json.length === 0) {
-                        alert('Excel文件为空');
+                    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', blankrows: false });
+                    
+                    if (rows.length < 2) {
+                        alert('Excel文件为空或格式错误，至少需要包含表头和一行数据');
                         return;
                     }
 
-                    const students = json.map(row => ({
-                        username: row.SNO.toString(),
-                        password: '123456',
-                        role: 'student',
-                        sno: row.SNO.toString(),
-                        sname: row.Sname
-                    }));
+                    const dataRows = rows.slice(1);
 
-                    const expNames = Object.keys(json[0]).slice(3);
-                    const experiments = expNames.map(name => ({
-                        course_id: courseId,
-                        exp_name: name
-                    }));
+                    const students = [];
+                    for (const row of dataRows) {
+                        if (row[1] && row[2]) { 
+                            students.push({
+                                username: row[1].toString().trim(),
+                                password: '123456',
+                                role: 'student',
+                                sno: row[1].toString().trim(),
+                                sname: row[2].toString().trim()
+                            });
+                        }
+                    }
+
+                    const expNames = [];
+                    if (rows[0].length > 3) {
+                        for (let i = 3; i < rows[0].length; i++) {
+                            if (rows[0][i]) {
+                                expNames.push(rows[0][i].toString().trim());
+                            }
+                        }
+                    }
+
+                    if (students.length === 0) {
+                        alert('没有找到有效的学生数据');
+                        return;
+                    }
 
                     await sb.from('users').insert(students, { ignoreDuplicates: true });
 
@@ -208,11 +268,16 @@
                     }));
                     await sb.from('enrollments').insert(enrollments, { ignoreDuplicates: true });
 
+                    const experiments = expNames.map(name => ({
+                        course_id: parseInt(courseId),
+                        exp_name: name
+                    }));
+                    
                     if (experiments.length > 0) {
                         await sb.from('experiments').insert(experiments);
                     }
 
-                    alert(`导入成功！共导入${students.length}名学生和${experiments.length}个实验项目`);
+                    alert(`导入成功！\n共导入 ${students.length} 名学生\n${experiments.length > 0 ? '导入 ' + experiments.length + ' 个实验项目' : '没有导入实验项目'}`);
                     closeModal();
                     loadCourses();
                 } catch (error) {
@@ -223,15 +288,53 @@
             reader.readAsArrayBuffer(file);
         }
 
+        function showDeleteConfirm(courseId) {
+            currentDeleteCourseId = courseId;
+            document.getElementById('deleteModal').style.display = 'block';
+        }
+
+        async function confirmDelete() {
+            if (!currentDeleteCourseId) return;
+
+            try {
+                const { error } = await sb
+                    .from('courses')
+                    .delete()
+                    .eq('id', currentDeleteCourseId);
+
+                if (error) {
+                    alert('删除失败：' + error.message);
+                    return;
+                }
+
+                alert('课程删除成功');
+                closeModal();
+                loadCourses();
+            } catch (error) {
+                alert('删除失败：' + error.message);
+            }
+        }
+
         function closeModal() {
+
             document.querySelectorAll('.modal').forEach(modal => {
                 modal.style.display = 'none';
             });
+
+            document.getElementById('createCourseForm').reset();
+            document.getElementById('excelFile').value = '';
+            currentDeleteCourseId = null;
         }
 
         function logout() {
             localStorage.removeItem('user');
             window.location.href = 'index.html';
+        }
+
+        window.onclick = function(event) {
+            if (event.target.classList.contains('modal')) {
+                closeModal();
+            }
         }
 
         window.onload = loadCourses;
