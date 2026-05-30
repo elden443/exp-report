@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>教师端 - 实验报告管理系统</title>
-    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="style.css">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="xlsx.min.js"></script>
 </head>
@@ -54,10 +54,9 @@
     </div>
 
     <script>
+
         const SUPABASE_URL = 'https://bvvbbyxedvhpsilggyyx.supabase.co';
         const SUPABASE_KEY = 'sb_publishable_yKsNqqYsG2R9cqZUMUjDAg_YcQ7nCff';
-
-
         const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
         const user = JSON.parse(localStorage.getItem('user'));
 
@@ -67,11 +66,17 @@
         async function loadCourses() {
             const { data: courses, error: courseError } = await sb
                 .from('courses')
-                .select('id, course_name')
+                .select(`
+                    id, course_name,
+                    experiments(
+                        id, exp_name, is_open,
+                        reports(count)
+                    )
+                `)
                 .eq('teacher_id', user.id);
-
+            
             if (courseError) {
-                alert('加载课程失败');
+                alert('加载课程失败：' + courseError.message);
                 return;
             }
 
@@ -84,38 +89,32 @@
             const courseList = document.getElementById('courseList');
             courseList.innerHTML = '';
 
-            for (const course of courses) {
-                const { data: experiments, error: expError } = await sb
-                    .from('experiments')
-                    .select(`
-                        id, exp_name, is_open,
-                        reports:reports(count)
-                    `)
-                    .eq('course_id', course.id);
-
-                if (expError) continue;
-
+            courses.forEach(course => {
                 const courseDiv = document.createElement('div');
                 courseDiv.className = 'course-card';
                 courseDiv.innerHTML = `<h4>${course.course_name}</h4>`;
 
-                const expList = document.createElement('ul');
-                experiments.forEach(exp => {
-                    const submittedCount = exp.reports[0]?.count || 0;
-                    const li = document.createElement('li');
-                    li.innerHTML = `
-                        <span>${exp.exp_name}</span>
-                        <span>已提交：${submittedCount}人</span>
-                        <button onclick="toggleExp('${exp.id}', ${exp.is_open})">
-                            ${exp.is_open ? '关闭' : '开放'}
-                        </button>
-                    `;
-                    expList.appendChild(li);
-                });
+                if (course.experiments.length > 0) {
+                    const expList = document.createElement('ul');
+                    course.experiments.forEach(exp => {
+                        const submittedCount = exp.reports[0]?.count || 0;
+                        const li = document.createElement('li');
+                        li.innerHTML = `
+                            <span>${exp.exp_name}</span>
+                            <span>已提交：${submittedCount}人</span>
+                            <button onclick="toggleExp('${exp.id}', ${exp.is_open})">
+                                ${exp.is_open ? '关闭上传' : '开放上传'}
+                            </button>
+                        `;
+                        expList.appendChild(li);
+                    });
+                    courseDiv.appendChild(expList);
+                } else {
+                    courseDiv.innerHTML += '<p style="color: #666; padding: 12px;">暂无实验项目，请导入Excel</p>';
+                }
 
-                courseDiv.appendChild(expList);
                 courseList.appendChild(courseDiv);
-            }
+            });
         }
 
         async function toggleExp(expId, currentState) {
@@ -123,9 +122,9 @@
                 .from('experiments')
                 .update({ is_open: !currentState })
                 .eq('id', expId);
-
+            
             if (error) {
-                alert('操作失败');
+                alert('操作失败：' + error.message);
                 return;
             }
             loadCourses();
@@ -138,7 +137,7 @@
         document.getElementById('createCourseForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const courseName = document.getElementById('courseName').value;
-
+            
             const { error } = await sb
                 .from('courses')
                 .insert({
@@ -163,7 +162,7 @@
         async function importExcel() {
             const courseId = document.getElementById('courseSelect').value;
             const file = document.getElementById('excelFile').files[0];
-
+            
             if (!courseId || !file) {
                 alert('请选择课程和Excel文件');
                 return;
@@ -171,51 +170,55 @@
 
             const reader = new FileReader();
             reader.onload = async (e) => {
-                const data = new Uint8Array(e.target.result);
-                const workbook = XLSX.read(data, { type: 'array' });
-                const sheet = workbook.Sheets[workbook.SheetNames[0]];
-                const json = XLSX.utils.sheet_to_json(sheet);
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                    const json = XLSX.utils.sheet_to_json(sheet);
 
-                if (json.length === 0) {
-                    alert('Excel文件为空');
-                    return;
+                    if (json.length === 0) {
+                        alert('Excel文件为空');
+                        return;
+                    }
+
+                    const students = json.map(row => ({
+                        username: row.SNO.toString(),
+                        password: '123456',
+                        role: 'student',
+                        sno: row.SNO.toString(),
+                        sname: row.Sname
+                    }));
+
+                    const expNames = Object.keys(json[0]).slice(3);
+                    const experiments = expNames.map(name => ({
+                        course_id: courseId,
+                        exp_name: name
+                    }));
+
+                    await sb.from('users').insert(students, { ignoreDuplicates: true });
+
+                    const { data: userIds } = await sb
+                        .from('users')
+                        .select('id, sno')
+                        .in('sno', students.map(s => s.sno));
+
+                    const enrollments = userIds.map(u => ({
+                        course_id: parseInt(courseId),
+                        student_id: u.id
+                    }));
+                    await sb.from('enrollments').insert(enrollments, { ignoreDuplicates: true });
+
+                    if (experiments.length > 0) {
+                        await sb.from('experiments').insert(experiments);
+                    }
+
+                    alert(`导入成功！共导入${students.length}名学生和${experiments.length}个实验项目`);
+                    closeModal();
+                    loadCourses();
+                } catch (error) {
+                    alert('导入失败：' + error.message);
+                    console.error(error);
                 }
-
-                const students = json.map(row => ({
-                    username: row.SNO.toString(),
-                    password: '123456',
-                    role: 'student',
-                    sno: row.SNO.toString(),
-                    sname: row.Sname
-                }));
-
-                const expNames = Object.keys(json[0]).slice(3);
-                const experiments = expNames.map(name => ({
-                    course_id: courseId,
-                    exp_name: name
-                }));
-
-                await sb.from('users').insert(students, { ignoreDuplicates: true });
-
-                const { data: userIds } = await sb
-                    .from('users')
-                    .select('id, sno')
-                    .in('sno', students.map(s => s.sno));
-
-                const enrollments = userIds.map(u => ({
-                    course_id: courseId,
-                    student_id: u.id
-                }));
-                await sb.from('enrollments').insert(enrollments, { ignoreDuplicates: true });
-
-                // 批量插入实验项目
-                if (experiments.length > 0) {
-                    await supabase.from('experiments').insert(experiments);
-                }
-
-                alert('导入成功');
-                closeModal();
-                loadCourses();
             };
             reader.readAsArrayBuffer(file);
         }
