@@ -21,7 +21,6 @@
         <div id="courseList"></div>
     </div>
 
-    <!-- 上传弹窗 -->
     <div id="uploadModal" class="modal">
         <div class="modal-content">
             <h3>上传实验报告</h3>
@@ -52,9 +51,7 @@
         if (!user || user.role !== 'student') window.location.href = 'index.html';
         document.getElementById('userInfo').textContent = `${user.sname} (${user.sno})`;
 
-        // ====================== 修复后的加载课程函数（关键修复） ======================
         async function loadCourses() {
-            // 正确的关系链：enrollments → courses → experiments
             const { data, error } = await sb
                 .from('enrollments')
                 .select(`
@@ -72,16 +69,13 @@
                 return;
             }
 
-            // 重新组织数据结构
             const courses = data.map(item => item.course);
 
-            // 查询学生已提交的报告
             const { data: reports } = await sb
                 .from('reports')
                 .select('exp_id, file_path')
                 .eq('student_id', user.id);
 
-            // 渲染课程列表
             const courseList = document.getElementById('courseList');
             courseList.innerHTML = '';
 
@@ -92,7 +86,7 @@
 
                 const expList = document.createElement('ul');
                 course.experiments.forEach(exp => {
-                    // 查找是否已提交报告
+
                     const report = reports.find(r => r.exp_id === exp.id);
                     
                     const li = document.createElement('li');
@@ -117,13 +111,11 @@
                 courseList.appendChild(courseDiv);
             });
 
-            // 如果没有课程
             if (courses.length === 0) {
                 courseList.innerHTML = '<p style="color: #999; text-align: center; padding: 40px;">暂无选修课程，请等待教师导入</p>';
             }
         }
 
-        // ====================== 上传报告 ======================
         function openUpload(expId, courseName, expName) {
             document.getElementById('expId').value = expId;
             document.getElementById('courseName').value = courseName;
@@ -138,24 +130,20 @@
             const courseName = document.getElementById('courseName').value;
             const expName = document.getElementById('expName').value;
 
-            // 检查文件大小
             if (file.size > 8 * 1024 * 1024) {
                 alert('文件大小不能超过8MB');
                 return;
             }
 
-            // 检查文件类型
             if (file.type !== 'application/pdf') {
                 alert('只能上传PDF文件');
                 return;
             }
 
-            // 自动重命名文件
             const fileName = `${user.sno}-${user.sname}-${expName}.pdf`;
             const filePath = `${courseName}/${expName}/${fileName}`;
 
             try {
-                // 上传文件
                 const { error: uploadError } = await sb.storage
                     .from('reports')
                     .upload(filePath, file, { upsert: true });
@@ -164,7 +152,6 @@
                     throw new Error('文件上传失败：' + uploadError.message);
                 }
 
-                // 保存记录到数据库
                 const { error: dbError } = await sb
                     .from('reports')
                     .upsert({
@@ -187,7 +174,6 @@
             }
         });
 
-        // ====================== 通用函数 ======================
         function closeModal() {
             document.getElementById('uploadModal').style.display = 'none';
             document.getElementById('uploadForm').reset();
@@ -198,14 +184,12 @@
             window.location.href = 'index.html';
         }
 
-        // 点击弹窗外部关闭
         window.onclick = function(event) {
             if (event.target.classList.contains('modal')) {
                 closeModal();
             }
         }
 
-        // 页面加载时执行
         window.onload = loadCourses;
     </script>
 </body>
