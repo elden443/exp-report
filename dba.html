@@ -23,19 +23,16 @@
             <button onclick="showTab('stats')">系统统计</button>
         </div>
 
-        <!-- 用户管理标签页 -->
         <div id="usersTab" class="tab-content">
             <h3>系统用户管理</h3>
             <div id="userList"></div>
         </div>
 
-        <!-- 课程管理标签页 -->
         <div id="coursesTab" class="tab-content" style="display: none;">
             <h3>所有课程管理</h3>
             <div id="courseList"></div>
         </div>
 
-        <!-- 系统统计标签页 -->
         <div id="statsTab" class="tab-content" style="display: none;">
             <h3>系统运行统计</h3>
             <div id="statsList"></div>
@@ -43,19 +40,15 @@
     </div>
 
     <script>
-        // ==============================================
-        // 替换成你自己的完整密钥
-        // ==============================================
-        const SUPABASE_URL = 'https://bwbbvyedxvhsilggyx.supabase.co';
-        const SUPABASE_KEY = '你的完整可发布密钥';
+
+        const SUPABASE_URL = 'https://bvvbbyxedvhpsilggyyx.supabase.co';
+        const SUPABASE_KEY = 'sb_publishable_yKsNqqYsG2R9cqZUMUjDAg_YcQ7nCff';
         const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
         const user = JSON.parse(localStorage.getItem('user'));
 
-        // 权限检查：只有DBA能访问
         if (!user || user.role !== 'DBA') window.location.href = 'index.html';
         document.getElementById('userInfo').textContent = `${user.sname} (系统管理员)`;
 
-        // 标签页切换
         function showTab(tabName) {
             document.querySelectorAll('.tab-content').forEach(tab => {
                 tab.style.display = 'none';
@@ -67,7 +60,6 @@
             else if (tabName === 'stats') loadStats();
         }
 
-        // ====================== 用户管理 ======================
         async function loadUsers() {
             const { data, error } = await sb
                 .from('users')
@@ -100,7 +92,6 @@
             });
         }
 
-        // ====================== 课程管理 ======================
         async function loadAllCourses() {
             const { data, error } = await sb
                 .from('courses')
@@ -134,19 +125,16 @@
             });
         }
 
-        // ====================== 系统统计 ======================
         async function loadStats() {
-            // 统计用户数
+
             const { data: userCount } = await sb
                 .from('users')
                 .select('id', { count: 'exact' });
-            
-            // 统计课程数
+
             const { data: courseCount } = await sb
                 .from('courses')
                 .select('id', { count: 'exact' });
-            
-            // 统计报告数
+
             const { data: reportCount } = await sb
                 .from('reports')
                 .select('id', { count: 'exact' });
@@ -168,13 +156,11 @@
             `;
         }
 
-        // ====================== 通用函数 ======================
         function logout() {
             localStorage.removeItem('user');
             window.location.href = 'index.html';
         }
 
-        // 页面加载时默认显示用户管理
         window.onload = () => loadUsers();
     </script>
 </body>
