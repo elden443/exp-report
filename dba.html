@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DBA管理端 - 实验报告管理系统</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+    <div class="header">
+        <h2>实验报告管理系统 - DBA控制台</h2>
+        <div>
+            <span id="userInfo"></span>
+            <button onclick="logout()">退出</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="btn-group">
+            <button onclick="showTab('users')">用户管理</button>
+            <button onclick="showTab('courses')">课程管理</button>
+            <button onclick="showTab('stats')">系统统计</button>
+        </div>
+
+        <!-- 用户管理标签页 -->
+        <div id="usersTab" class="tab-content">
+            <h3>系统用户管理</h3>
+            <div id="userList"></div>
+        </div>
+
+        <!-- 课程管理标签页 -->
+        <div id="coursesTab" class="tab-content" style="display: none;">
+            <h3>所有课程管理</h3>
+            <div id="courseList"></div>
+        </div>
+
+        <!-- 系统统计标签页 -->
+        <div id="statsTab" class="tab-content" style="display: none;">
+            <h3>系统运行统计</h3>
+            <div id="statsList"></div>
+        </div>
+    </div>
+
+    <script>
+        // ==============================================
+        // 替换成你自己的完整密钥
+        // ==============================================
+        const SUPABASE_URL = 'https://bwbbvyedxvhsilggyx.supabase.co';
+        const SUPABASE_KEY = '你的完整可发布密钥';
+        const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        const user = JSON.parse(localStorage.getItem('user'));
+
+        // 权限检查：只有DBA能访问
+        if (!user || user.role !== 'DBA') window.location.href = 'index.html';
+        document.getElementById('userInfo').textContent = `${user.sname} (系统管理员)`;
+
+        // 标签页切换
+        function showTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.style.display = 'none';
+            });
+            document.getElementById(tabName + 'Tab').style.display = 'block';
+            
+            if (tabName === 'users') loadUsers();
+            else if (tabName === 'courses') loadAllCourses();
+            else if (tabName === 'stats') loadStats();
+        }
+
+        // ====================== 用户管理 ======================
+        async function loadUsers() {
+            const { data, error } = await sb
+                .from('users')
+                .select('*')
+                .order('role');
+            
+            if (error) {
+                alert('加载用户失败：' + error.message);
+                return;
+            }
+
+            const userList = document.getElementById('userList');
+            userList.innerHTML = '';
+
+            const roleMap = {
+                'DBA': '系统管理员',
+                'teacher': '教师',
+                'student': '学生'
+            };
+
+            data.forEach(u => {
+                const userDiv = document.createElement('div');
+                userDiv.className = 'course-card';
+                userDiv.innerHTML = `
+                    <h4>${u.sname} <span style="font-size: 14px; color: #666;">(${roleMap[u.role]})</span></h4>
+                    <p>用户名：${u.username}</p>
+                    ${u.sno ? `<p>学号：${u.sno}</p>` : ''}
+                `;
+                userList.appendChild(userDiv);
+            });
+        }
+
+        // ====================== 课程管理 ======================
+        async function loadAllCourses() {
+            const { data, error } = await sb
+                .from('courses')
+                .select(`
+                    id, course_name, created_at,
+                    teacher:users(sname),
+                    experiments(count),
+                    enrollments(count)
+                `)
+                .order('created_at', { ascending: false });
+            
+            if (error) {
+                alert('加载课程失败：' + error.message);
+                return;
+            }
+
+            const courseList = document.getElementById('courseList');
+            courseList.innerHTML = '';
+
+            data.forEach(course => {
+                const courseDiv = document.createElement('div');
+                courseDiv.className = 'course-card';
+                courseDiv.innerHTML = `
+                    <h4>${course.course_name}</h4>
+                    <p>创建教师：${course.teacher.sname}</p>
+                    <p>创建时间：${new Date(course.created_at).toLocaleString()}</p>
+                    <p>实验项目数：${course.experiments[0].count}</p>
+                    <p>选课学生数：${course.enrollments[0].count}</p>
+                `;
+                courseList.appendChild(courseDiv);
+            });
+        }
+
+        // ====================== 系统统计 ======================
+        async function loadStats() {
+            // 统计用户数
+            const { data: userCount } = await sb
+                .from('users')
+                .select('id', { count: 'exact' });
+            
+            // 统计课程数
+            const { data: courseCount } = await sb
+                .from('courses')
+                .select('id', { count: 'exact' });
+            
+            // 统计报告数
+            const { data: reportCount } = await sb
+                .from('reports')
+                .select('id', { count: 'exact' });
+
+            const statsList = document.getElementById('statsList');
+            statsList.innerHTML = `
+                <div class="course-card">
+                    <h4>系统总用户数：${userCount.length}人</h4>
+                    <p>系统管理员：${userCount.filter(u => u.role === 'DBA').length}人</p>
+                    <p>教师：${userCount.filter(u => u.role === 'teacher').length}人</p>
+                    <p>学生：${userCount.filter(u => u.role === 'student').length}人</p>
+                </div>
+                <div class="course-card">
+                    <h4>系统总课程数：${courseCount.length}门</h4>
+                </div>
+                <div class="course-card">
+                    <h4>已提交实验报告总数：${reportCount.length}份</h4>
+                </div>
+            `;
+        }
+
+        // ====================== 通用函数 ======================
+        function logout() {
+            localStorage.removeItem('user');
+            window.location.href = 'index.html';
+        }
+
+        // 页面加载时默认显示用户管理
+        window.onload = () => loadUsers();
+    </script>
+</body>
+</html>
